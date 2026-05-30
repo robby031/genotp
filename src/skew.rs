@@ -1,15 +1,6 @@
 //! Deteksi clock skew untuk TOTP.
 //!
-//! Masalah real: backend di cloud (mis. AS) tidak NTP-sync sempurna dengan
-//! device user. Akibatnya verifikasi sering berhasil hanya kalau window>0,
-//! atau gagal padahal user benar.
-//!
 //! **Catatan zona waktu:** TOTP RFC 6238 selalu berbasis Unix epoch UTC.
-//! "Zona waktu WIB/WITA/WIT" sebenarnya bukan masalah TOTP — masalahnya
-//! adalah salah satu sisi memberi timestamp local time. Selama backend dan
-//! authenticator app sama-sama pakai UTC epoch, zona waktu user di Indonesia
-//! tidak relevan. Detector ini fokus pada **clock drift** (jam server beda
-//! dari authoritative time), bukan zona waktu.
 //!
 //! Mode:
 //!
@@ -259,7 +250,11 @@ mod tests {
         for _ in 0..50 {
             d.record(5, 10);
         }
-        assert_eq!(d.current_offset(), 0, "passive mode tidak boleh ubah offset");
+        assert_eq!(
+            d.current_offset(),
+            0,
+            "passive mode tidak boleh ubah offset"
+        );
     }
 
     #[test]

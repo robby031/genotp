@@ -18,7 +18,13 @@ This document outlines security considerations and best practices when using the
 
 ### Generation
 
-- **Use Cryptographically Secure RNG**: The library uses `ax-rnd` for generating cryptographically secure random numbers
+- **Cryptographically Secure RNG (OS-backed)**: The library uses `getrandom`,
+  which calls the OS-provided CSPRNG directly: `getrandom(2)` on Linux,
+  `arc4random_buf` on macOS / *BSD, `BCryptGenRandom` on Windows. This is the
+  same primitive used by `rand::OsRng`, `ring`, `rustls`, and `argon2`.
+  No userspace PRNG (fastrand, ax-rnd, SmallRng, etc.) is used — those are
+  non-cryptographic and would let an attacker who knows roughly when the
+  secret was generated brute-force the seed in milliseconds.
 - **Minimum Key Length**: Use at least 128-bit (16 bytes) secrets for HOTP/TOTP
 - **Recommended Key Length**: Use 256-bit (32 bytes) secrets for better security
 - **Never Reuse Secrets**: Each user/service should have a unique secret

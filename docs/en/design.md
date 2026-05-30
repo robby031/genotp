@@ -31,7 +31,7 @@ For **how to use it**, see [usage.md](./usage.md).
    Passes all RFC test vectors + thousands of randomized property tests.
 
 2. **Secure against real practical attacks** — not just theoretical.
-   Real-world scenarios users face (WhatsApp OTP intercept, brute force
+   Real-world scenarios users face (channel OTP intercept, brute force
    short codes, phishing) must be handled by design, not documentation.
 
 3. **Ergonomic API for idiomatic Rust.** Builder pattern, `Result` in
@@ -71,9 +71,9 @@ mentions its module.
   → Mode 1 binding with `.origin()` field — attacker's origin differs,
   HMAC produces different digits, real site rejects.
 
-- **Channel intercept (WhatsApp/SMS OTP)** — attacker reads OTP message
-  sent to victim (e.g., SIM swap, read notification, access cloud
-  backup).
+- **Channel intercept (SMS / email / WhatsApp / Telegram / push notification)**
+  — attacker reads OTP message sent to victim (e.g., SIM swap, read
+  notification, cloud backup access, mailbox compromise, etc.).
   → Mode 1 binding with `.ip()` + `.session()` — code only valid for
   context bound by server at issue time.
 
@@ -228,7 +228,7 @@ Comparison table:
 | Google Auth compatible | No (server-only OTP) | Yes |
 | Strength against intercept | Maximum (cryptographic) | Medium (server check) |
 | Strength against context spoof | Maximum | Medium (caller must authenticate context) |
-| Use case | Channel OTP (WhatsApp/SMS) | TOTP app authenticator |
+| Use case | Channel OTP (SMS/email/WA/Telegram/push) | TOTP app authenticator |
 
 Mode 1 is stronger because context enters HMAC — attacker who knows
 6-digit code from channel but doesn't know server context used cannot

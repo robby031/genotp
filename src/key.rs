@@ -1,5 +1,5 @@
 use crate::error::{GenOtpError, Result};
-use ax_rnd::fill;
+use getrandom::getrandom;
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -16,13 +16,16 @@ impl KeyGenerator {
             return Err(GenOtpError::InvalidSecret);
         }
 
-        if bit_length % 8 != 0 {
+        if !bit_length.is_multiple_of(8) {
             return Err(GenOtpError::InvalidSecret);
         }
 
         let byte_length = bit_length / 8;
         let mut secret = vec![0u8; byte_length];
-        fill(&mut secret);
+        // OS-backed cryptographically secure RNG. Kalau OS gagal supply
+        // entropy (sangat jarang — biasanya container baru boot tanpa
+        // /dev/urandom), kembalikan error daripada fallback ke PRNG lemah.
+        getrandom(&mut secret).map_err(|_| GenOtpError::InvalidSecret)?;
 
         Ok(secret)
     }

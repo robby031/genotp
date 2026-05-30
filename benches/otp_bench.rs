@@ -1,5 +1,5 @@
-use criterion::{criterion_group, criterion_main, Criterion};
-use genotp::{decode, encode, Algorithm, KeyGenerator, Verifier, HOTP, TOTP};
+use criterion::{Criterion, criterion_group, criterion_main};
+use genotp::{Algorithm, HOTP, KeyGenerator, TOTP, Verifier, decode, encode};
 use std::hint::black_box;
 use std::sync::Arc;
 

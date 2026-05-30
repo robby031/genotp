@@ -294,8 +294,9 @@ from multiple threads.
 ## Context Binding (Flagship Feature)
 
 **Problem:** Standard OTP (RFC 6238) only depends on `(secret, counter)`.
-Once 6-digit code leaks — intercepted WhatsApp, phished, brute-forced
-— anyone with code can use it.
+Once 6-digit code leaks — intercepted from channel delivery (SMS, email,
+WhatsApp, Telegram, push notification), phished, brute-forced — anyone with
+code can use it.
 
 **genotp solution:** bind OTP to additional context (IP, device, session, origin
 URL). Attacker with code but different context automatically rejected.
@@ -305,7 +306,7 @@ Two modes available.
 ### Mode 1 — HMAC Binding
 
 OTP code itself **cryptographically** differs for different context.
-Anti WhatsApp / SMS intercept.
+Anti channel OTP intercept (SMS, email, WhatsApp, Telegram, push notification, etc.).
 
 ```rust
 use genotp::{Algorithm, HOTP, OtpContext};
@@ -319,7 +320,8 @@ let issued_ctx = OtpContext::builder()
     .build();
 
 let code = hotp.generate_bound(counter, &issued_ctx).unwrap();
-send_via_whatsapp(user_phone, &code);
+// Deliver via any channel (SMS, email, WhatsApp, Telegram, push notification, ...).
+send_via_channel(user_phone, &code);
 ```
 
 When user submits form:
@@ -335,9 +337,10 @@ if hotp.verify_bound(&form.code, counter, &request_ctx).unwrap() {
 }
 ```
 
-**Real effect:** attacker who intercepts code from WhatsApp, then tries to submit
-from different IP → server computes HMAC with attacker context → computed
-digits differ from intercepted → reject. Brute force 0000-9999
+**Real effect:** attacker who intercepts code from channel delivery (e.g.
+SIM swap to read SMS, email/Telegram backup compromise, push intercept), then
+tries to submit from different IP → server computes HMAC with attacker context
+→ computed digits differ from intercepted → reject. Brute force 0000-9999
 **from attacker context** also useless.
 
 For TOTP:

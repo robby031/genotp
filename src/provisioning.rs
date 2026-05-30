@@ -1,5 +1,5 @@
 use crate::algorithm::Algorithm;
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 use std::fmt;
 
 // Encode everything except unreserved characters per RFC 3986.

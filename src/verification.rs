@@ -233,7 +233,7 @@ mod tests {
         // Walaupun kode dan expected benar, context berbeda → tolak.
         assert!(!verifier.verify_with_context("123456", "123456", &issued, &attacker));
         // Dan attempt counter naik.
-        assert!(verifier.verify_with_context("xxx", "yyy", &issued, &issued) == false);
+        assert!(!verifier.verify_with_context("xxx", "yyy", &issued, &issued));
     }
 
     #[test]
@@ -270,11 +270,18 @@ mod tests {
 
     #[test]
     fn test_context_check_blocks_even_brute_force() {
-        // Skenario Anda: attacker dapat kode dari intercept WhatsApp, tapi
-        // dari IP berbeda. Library harus menolak walaupun kode benar.
+        // Skenario channel OTP: attacker dapat kode dari intercept channel
+        // delivery (SMS/email/WhatsApp/Telegram/dll) tapi dari IP berbeda.
+        // Library harus menolak walaupun kode benar.
         let verifier = Verifier::new(10_000);
-        let user_ctx = OtpContext::builder().ip("10.0.0.1").session("login-real").build();
-        let attacker_ctx = OtpContext::builder().ip("203.0.113.9").session("login-real").build();
+        let user_ctx = OtpContext::builder()
+            .ip("10.0.0.1")
+            .session("login-real")
+            .build();
+        let attacker_ctx = OtpContext::builder()
+            .ip("203.0.113.9")
+            .session("login-real")
+            .build();
 
         let intercepted_code = "4829";
         // Attacker mencoba 10.000 kombinasi dari IP-nya — semua harus gagal.

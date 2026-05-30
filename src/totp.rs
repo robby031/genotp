@@ -480,7 +480,10 @@ mod tests {
         for t in [59u64, 1111111109, 1234567890] {
             let standard = totp.generate(Some(t)).unwrap();
             let bound = totp.generate_bound(&empty, Some(t)).unwrap();
-            assert_eq!(standard, bound, "context kosong harus = TOTP standar pada t={t}");
+            assert_eq!(
+                standard, bound,
+                "context kosong harus = TOTP standar pada t={t}"
+            );
         }
     }
 
@@ -508,12 +511,22 @@ mod tests {
         ];
         let totp = TOTP::new(secret, Algorithm::SHA1, 6, 30).unwrap();
         let issued_ctx = OtpContext::builder().ip("10.0.0.1").device("dev-a").build();
-        let attacker_ctx = OtpContext::builder().ip("203.0.113.5").device("dev-a").build();
+        let attacker_ctx = OtpContext::builder()
+            .ip("203.0.113.5")
+            .device("dev-a")
+            .build();
 
         let code = totp.generate_bound(&issued_ctx, Some(1234567890)).unwrap();
-        assert!(totp.verify_bound(&code, &issued_ctx, Some(1234567890), 1).unwrap());
-        assert!(!totp.verify_bound(&code, &attacker_ctx, Some(1234567890), 1).unwrap(),
-            "kode dari IP berbeda harus ditolak");
+        assert!(
+            totp.verify_bound(&code, &issued_ctx, Some(1234567890), 1)
+                .unwrap()
+        );
+        assert!(
+            !totp
+                .verify_bound(&code, &attacker_ctx, Some(1234567890), 1)
+                .unwrap(),
+            "kode dari IP berbeda harus ditolak"
+        );
     }
 
     #[test]
@@ -528,7 +541,8 @@ mod tests {
 
         let code = totp.generate(Some(1700000010)).unwrap();
         for _ in 0..10 {
-            totp.verify_tracking(&code, Some(1700000010), 1, &detector).unwrap();
+            totp.verify_tracking(&code, Some(1700000010), 1, &detector)
+                .unwrap();
         }
         let r = detector.report();
         assert!(r.sample_count >= 8);
@@ -550,7 +564,9 @@ mod tests {
         let t0: u64 = 1_700_000_010;
         let code = totp.generate(Some(t0)).unwrap();
         for _ in 0..10 {
-            let ok = totp.verify_tracking(&code, Some(t0 + 30), 1, &detector).unwrap();
+            let ok = totp
+                .verify_tracking(&code, Some(t0 + 30), 1, &detector)
+                .unwrap();
             assert!(ok);
         }
         let r = detector.report();
@@ -573,14 +589,20 @@ mod tests {
         let t_server = t_user + 30; // server jam-nya maju 30s
         let code = totp.generate(Some(t_user)).unwrap();
         for _ in 0..30 {
-            totp.verify_tracking(&code, Some(t_server), 1, &detector).unwrap();
+            totp.verify_tracking(&code, Some(t_server), 1, &detector)
+                .unwrap();
         }
 
         // Sekarang offset internal = -1. Berarti verify di t_server tanpa
         // window seharusnya sukses.
         let new_code = totp.generate(Some(t_user)).unwrap();
-        let result = totp.verify_tracking(&new_code, Some(t_server), 0, &detector).unwrap();
-        assert!(result, "setelah auto-adjust mempelajari drift, window=0 harus berhasil");
+        let result = totp
+            .verify_tracking(&new_code, Some(t_server), 0, &detector)
+            .unwrap();
+        assert!(
+            result,
+            "setelah auto-adjust mempelajari drift, window=0 harus berhasil"
+        );
     }
 
     #[test]

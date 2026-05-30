@@ -79,7 +79,7 @@ let uri = OtpAuthUri::new(
 // Render `uri` to QR code (e.g., with `qrcode` crate).
 ```
 
-### Context binding — anti WhatsApp intercept (flagship feature)
+### Context binding — anti channel OTP intercept (flagship feature)
 
 ```rust
 use genotp::{Algorithm, HOTP, OtpContext};
@@ -92,7 +92,7 @@ let ctx = OtpContext::builder()
     .ip("hash_of_user_ip")
     .build();
 let code = hotp.generate_bound(counter, &ctx).unwrap();
-// Send `code` via WhatsApp / SMS.
+// Send `code` via any channel (SMS, email, WhatsApp, Telegram, push notif, ...).
 
 // When user submits:
 if hotp.verify_bound(&form.code, counter, &ctx).unwrap() {

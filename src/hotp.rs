@@ -253,7 +253,10 @@ mod tests {
         let hotp = HOTP::new(secret, Algorithm::SHA1, 6).unwrap();
         let empty = OtpContext::empty();
         for c in 0u64..10 {
-            assert_eq!(hotp.generate(c).unwrap(), hotp.generate_bound(c, &empty).unwrap());
+            assert_eq!(
+                hotp.generate(c).unwrap(),
+                hotp.generate_bound(c, &empty).unwrap()
+            );
         }
     }
 

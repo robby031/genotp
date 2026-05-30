@@ -1,4 +1,4 @@
-use crate::{Algorithm, KeyGenerator, Result, HOTP, TOTP};
+use crate::{Algorithm, HOTP, KeyGenerator, Result, TOTP};
 
 pub fn generate_hotp_default(secret: Vec<u8>, counter: u64) -> Result<String> {
     let hotp = HOTP::new(secret, Algorithm::SHA1, 6)?;

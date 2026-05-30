@@ -294,8 +294,9 @@ aman dipakai dari banyak thread.
 ## Context Binding (Fitur Unggulan)
 
 **Masalah:** OTP standar (RFC 6238) hanya bergantung pada `(secret, counter)`.
-Begitu kode 6 digit bocor — diintercept WhatsApp, di-phishing, di-brute-force
-— siapa pun yang punya kode bisa pakai.
+Begitu kode 6 digit bocor — diintercept dari channel delivery (SMS, email,
+WhatsApp, Telegram, push notif), di-phishing, di-brute-force — siapa pun yang
+punya kode bisa pakai.
 
 **Solusi genotp:** ikat OTP ke context tambahan (IP, device, session, origin
 URL). Penyerang yang punya kode tapi context-nya berbeda otomatis ditolak.
@@ -305,7 +306,7 @@ Dua mode tersedia.
 ### Mode 1 — HMAC Binding
 
 Kode OTP itu sendiri **secara kriptografis** berbeda untuk context berbeda.
-Anti WhatsApp / SMS intercept.
+Anti channel OTP intercept (SMS, email, WhatsApp, Telegram, push notif, dll).
 
 ```rust
 use genotp::{Algorithm, HOTP, OtpContext};
@@ -319,7 +320,8 @@ let issued_ctx = OtpContext::builder()
     .build();
 
 let code = hotp.generate_bound(counter, &issued_ctx).unwrap();
-send_via_whatsapp(user_phone, &code);
+// Kirim via channel apa pun (SMS, email, WhatsApp, Telegram, push notif, ...).
+send_via_channel(user_phone, &code);
 ```
 
 Saat user submit form:
@@ -335,7 +337,8 @@ if hotp.verify_bound(&form.code, counter, &request_ctx).unwrap() {
 }
 ```
 
-**Efek nyata:** attacker yang intercept kode dari WhatsApp, lalu coba submit
+**Efek nyata:** attacker yang intercept kode dari channel delivery (mis. baca
+SMS via SIM swap, akses email/Telegram backup, intercept push), lalu coba submit
 dari IP yang berbeda → server menghitung HMAC dengan context attacker → digit
 hasil komputasi berbeda dari yang dicegat → tolak. Brute force 0000-9999
 **dari context attacker** juga sia-sia.

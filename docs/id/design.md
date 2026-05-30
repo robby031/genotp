@@ -31,7 +31,7 @@ Untuk **bagaimana memakainya**, lihat [usage.md](./usage.md).
    Lulus semua RFC test vector + ribuan property test randomized.
 
 2. **Aman terhadap serangan praktis yang nyata** — bukan hanya teoritis.
-   Skenario nyata yang dialami pengguna (intercept WhatsApp OTP, brute force
+   Skenario nyata yang dialami pengguna (intercept channel OTP, brute force
    kode pendek, phishing) harus tertangani secara desain, bukan dokumen.
 
 3. **API ergonomis untuk Rust idiomatik.** Builder pattern, `Result` di
@@ -71,9 +71,9 @@ disebutkan modulnya.
   → Mode 1 binding dengan field `.origin()` — origin attacker berbeda,
   HMAC menghasilkan digit berbeda, real site tolak.
 
-- **Channel intercept (WhatsApp/SMS OTP)** — penyerang membaca pesan OTP
-  yang dikirim ke korban (mis. SIM swap, baca notifikasi, akses cloud
-  backup).
+- **Channel intercept (SMS / email / WhatsApp / Telegram / push notif)** —
+  penyerang membaca pesan OTP yang dikirim ke korban (mis. SIM swap, baca
+  notifikasi, akses cloud backup, mailbox compromise, dll).
   → Mode 1 binding dengan `.ip()` + `.session()` — kode hanya berlaku
   untuk context yang server bind saat issue.
 
@@ -229,7 +229,7 @@ Tabel komparasi:
 | Kompatibel Google Auth | Tidak (server-only OTP) | Ya |
 | Kekuatan terhadap intercept | Maksimal (cryptographic) | Sedang (server check) |
 | Kekuatan terhadap context spoof | Maksimal | Sedang (caller harus authenticate context) |
-| Use case | Channel OTP (WhatsApp/SMS) | TOTP app authenticator |
+| Use case | Channel OTP (SMS/email/WA/Telegram/push) | TOTP app authenticator |
 
 Mode 1 lebih kuat karena context masuk ke HMAC — attacker yang tahu kode
 6-digit dari channel, tapi tidak tahu context server yang dipakai, tidak

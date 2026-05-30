@@ -1,8 +1,9 @@
 //! Context binding untuk OTP.
 //!
 //! Standar RFC 6238 / 4226 menghasilkan OTP yang **hanya** bergantung pada
-//! (secret, counter). Akibatnya, sekali kode 6 digit bocor (intercept WhatsApp,
-//! brute force, phishing), siapa pun bisa pakai.
+//! (secret, counter). Akibatnya, sekali kode 6 digit bocor (intercept channel
+//! delivery — SMS, email, WhatsApp, Telegram, push notif; brute force; phishing),
+//! siapa pun bisa pakai.
 //!
 //! Context binding mengikat OTP ke informasi tambahan (IP, device, session,
 //! origin URL) sehingga:

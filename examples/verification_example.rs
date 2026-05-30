@@ -1,4 +1,4 @@
-use genotp::{constant_time_eq, Verifier};
+use genotp::{Verifier, constant_time_eq};
 
 fn main() {
     let verifier = Verifier::new(5);

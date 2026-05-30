@@ -1,4 +1,4 @@
-use genotp::{encode, Algorithm, KeyGenerator, OtpAuthUri, OtpType};
+use genotp::{Algorithm, KeyGenerator, OtpAuthUri, OtpType, encode};
 
 fn main() {
     let secret = KeyGenerator::generate_default_secret().unwrap();
