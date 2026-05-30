@@ -1,9 +1,8 @@
 /target
-/docs
 *.log
 *.tmp
 /benchmark_results
 Makefile
 *.sh
-*.md
 *.lock
+*.DS_Store

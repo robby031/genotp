@@ -6,49 +6,159 @@ on:
   pull_request:
     branches: [main, prerelease]
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
+  # ---------------------------------------------------------------------------
+  # Lint dulu — fail cepat tanpa harus build penuh.
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint (fmt + clippy)
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
           components: rustfmt, clippy
-
-      - name: Cache cargo registry
-        uses: actions/cache@v3
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo index
-        uses: actions/cache@v3
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cache cargo build
-        uses: actions/cache@v3
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-
+      - uses: Swatinem/rust-cache@v2
       - name: Format check
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
+      - name: Clippy (all targets + features)
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Clippy
-        run: cargo clippy -- -D warnings
-
+  # ---------------------------------------------------------------------------
+  # Test default + all-features di Linux.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test (${{ matrix.features }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - features: ""
+            label: default
+          - features: "--all-features"
+            label: all-features
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: features-${{ matrix.label }}
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --verbose ${{ matrix.features }}
+      - name: Test
+        run: cargo test --verbose ${{ matrix.features }}
+      - name: Doc test
+        run: cargo test --doc ${{ matrix.features }}
 
-      - name: Run tests
-        run: cargo test --verbose
+  # ---------------------------------------------------------------------------
+  # no_std + alloc — pastikan core API kompilasi tanpa std.
+  # ---------------------------------------------------------------------------
+  no_std:
+    name: no_std + alloc build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: no-std
+      - run: cargo build --no-default-features --features alloc
+
+  # ---------------------------------------------------------------------------
+  # MSRV check — Cargo.toml pakai edition 2024 yang butuh Rust 1.85+.
+  # Pin versi minimum agar regression terdeteksi.
+  # ---------------------------------------------------------------------------
+  msrv:
+    name: MSRV (Rust 1.85)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv
+      - run: cargo build --all-features
+      - run: cargo test --all-features
+
+  # ---------------------------------------------------------------------------
+  # Cross-platform — claim "thread-safe untuk concurrent usage" harus
+  # diverifikasi di non-Linux (ARM macOS memory ordering, Windows futex).
+  # ---------------------------------------------------------------------------
+  cross_platform:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
+      - run: cargo test --all-features
+
+  # ---------------------------------------------------------------------------
+  # Supply chain — CVE scan + license/policy enforcement.
+  # ---------------------------------------------------------------------------
+  audit:
+    name: cargo audit + deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: audit
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-deny
+      - name: cargo audit
+        run: cargo audit
+      - name: cargo deny check
+        run: cargo deny check
+
+  # ---------------------------------------------------------------------------
+  # Miri — undefined behavior / memory safety check.
+  # ---------------------------------------------------------------------------
+  miri:
+    name: Miri (UB / memory safety)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: miri
+      - name: Run miri on lib tests
+        run: cargo miri test --lib
+
+  # ---------------------------------------------------------------------------
+  # Fuzz targets compile check — fuzz target boleh tidak di-run di CI
+  # (butuh waktu lama), tapi WAJIB ter-compile.
+  # ---------------------------------------------------------------------------
+  fuzz_build:
+    name: Fuzz targets build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "fuzz"
+          key: fuzz
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - name: Build all fuzz targets
+        run: cargo fuzz build

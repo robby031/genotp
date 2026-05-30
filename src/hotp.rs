@@ -16,6 +16,8 @@ use alloc::vec::Vec;
 
 use zeroize::Zeroize;
 
+const CONTEXT_BIND_TAG: &[u8] = b"genotp-ctx-v1\0";
+
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct HOTP {
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -63,7 +65,36 @@ impl HOTP {
         Ok(constant_time_eq(code, &expected))
     }
 
+    /// Generate HOTP yang **terikat ke context**. Lihat dokumentasi
+    /// [`crate::context::OtpContext`] untuk detail.
+    #[cfg(feature = "std")]
+    pub fn generate_bound(
+        &self,
+        counter: u64,
+        context: &crate::context::OtpContext,
+    ) -> Result<String> {
+        let hmac = self.compute_hmac_bytes(counter, context.as_bytes())?;
+        let code = self.dynamic_truncate(&hmac);
+        Ok(format!("{:0width$}", code, width = self.digits as usize))
+    }
+
+    /// Verifikasi HOTP yang terikat ke context.
+    #[cfg(feature = "std")]
+    pub fn verify_bound(
+        &self,
+        code: &str,
+        counter: u64,
+        context: &crate::context::OtpContext,
+    ) -> Result<bool> {
+        let expected = self.generate_bound(counter, context)?;
+        Ok(constant_time_eq(code, &expected))
+    }
+
     fn compute_hmac(&self, counter: u64) -> Result<Vec<u8>> {
+        self.compute_hmac_bytes(counter, &[])
+    }
+
+    fn compute_hmac_bytes(&self, counter: u64, context: &[u8]) -> Result<Vec<u8>> {
         use hmac::{Hmac, KeyInit, Mac};
         use sha1::Sha1;
         use sha2::{Sha256, Sha512};
@@ -76,6 +107,10 @@ impl HOTP {
                 let mut mac = HmacSha1::new_from_slice(&self.secret)
                     .map_err(|_| GenOtpError::InvalidSecret)?;
                 mac.update(&counter_bytes);
+                if !context.is_empty() {
+                    mac.update(CONTEXT_BIND_TAG);
+                    mac.update(context);
+                }
                 mac.finalize().into_bytes().to_vec()
             }
             Algorithm::SHA256 => {
@@ -83,6 +118,10 @@ impl HOTP {
                 let mut mac = HmacSha256::new_from_slice(&self.secret)
                     .map_err(|_| GenOtpError::InvalidSecret)?;
                 mac.update(&counter_bytes);
+                if !context.is_empty() {
+                    mac.update(CONTEXT_BIND_TAG);
+                    mac.update(context);
+                }
                 mac.finalize().into_bytes().to_vec()
             }
             Algorithm::SHA512 => {
@@ -90,6 +129,10 @@ impl HOTP {
                 let mut mac = HmacSha512::new_from_slice(&self.secret)
                     .map_err(|_| GenOtpError::InvalidSecret)?;
                 mac.update(&counter_bytes);
+                if !context.is_empty() {
+                    mac.update(CONTEXT_BIND_TAG);
+                    mac.update(context);
+                }
                 mac.finalize().into_bytes().to_vec()
             }
         };
@@ -198,6 +241,36 @@ mod tests {
         ];
         let hotp = HOTP::new(secret, Algorithm::SHA1, 6).unwrap();
         drop(hotp);
+    }
+
+    #[test]
+    fn test_bound_empty_context_equals_standard_hotp() {
+        use crate::context::OtpContext;
+        let secret = vec![
+            0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34,
+            0x35, 0x36, 0x37, 0x38, 0x39, 0x30,
+        ];
+        let hotp = HOTP::new(secret, Algorithm::SHA1, 6).unwrap();
+        let empty = OtpContext::empty();
+        for c in 0u64..10 {
+            assert_eq!(hotp.generate(c).unwrap(), hotp.generate_bound(c, &empty).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_bound_verify_rejects_different_context() {
+        use crate::context::OtpContext;
+        let secret = vec![
+            0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34,
+            0x35, 0x36, 0x37, 0x38, 0x39, 0x30,
+        ];
+        let hotp = HOTP::new(secret, Algorithm::SHA1, 6).unwrap();
+        let issued = OtpContext::builder().session("login-123").build();
+        let attacker = OtpContext::builder().session("login-999").build();
+
+        let code = hotp.generate_bound(42, &issued).unwrap();
+        assert!(hotp.verify_bound(&code, 42, &issued).unwrap());
+        assert!(!hotp.verify_bound(&code, 42, &attacker).unwrap());
     }
 
     #[cfg(feature = "serde")]

@@ -29,6 +29,12 @@ pub mod config;
 #[cfg(feature = "std")]
 pub mod metrics;
 
+#[cfg(feature = "std")]
+pub mod context;
+
+#[cfg(feature = "std")]
+pub mod skew;
+
 pub use algorithm::Algorithm;
 pub use base32::{decode, encode};
 pub use constant_time::constant_time_eq;
@@ -57,3 +63,9 @@ pub use config::{HotpConfig, TotpConfig};
 
 #[cfg(feature = "std")]
 pub use metrics::Metrics;
+
+#[cfg(feature = "std")]
+pub use context::{OtpContext, OtpContextBuilder};
+
+#[cfg(feature = "std")]
+pub use skew::{ClockSkewDetector, SkewRecommendation, SkewReport};

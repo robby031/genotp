@@ -47,3 +47,24 @@ path = "fuzz_targets/provisioning_fuzz.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "context_binding_fuzz"
+path = "fuzz_targets/context_binding_fuzz.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "verifier_context_fuzz"
+path = "fuzz_targets/verifier_context_fuzz.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "context_builder_fuzz"
+path = "fuzz_targets/context_builder_fuzz.rs"
+test = false
+doc = false
+bench = false

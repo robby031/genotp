@@ -1,4 +1,4 @@
-use genotp::{Algorithm, KeyGenerator, HOTP, TOTP};
+use genotp::{Algorithm, HOTP, KeyGenerator, TOTP};
 
 #[test]
 fn test_hotp_integration() {
