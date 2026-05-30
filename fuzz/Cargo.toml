@@ -1,0 +1,49 @@
+[package]
+name = "genotp-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.genotp]
+path = ".."
+
+[[bin]]
+name = "fuzz_target_1"
+path = "fuzz_targets/fuzz_target_1.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hotp_fuzz"
+path = "fuzz_targets/hotp_fuzz.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "totp_fuzz"
+path = "fuzz_targets/totp_fuzz.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "base32_fuzz"
+path = "fuzz_targets/base32_fuzz.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "provisioning_fuzz"
+path = "fuzz_targets/provisioning_fuzz.rs"
+test = false
+doc = false
+bench = false
