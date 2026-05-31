@@ -362,10 +362,7 @@ mod tests {
         let secret = vec![0x22u8; 20];
         let hotp = HOTP::new(secret, Algorithm::SHA1, 6).unwrap();
 
-        assert_eq!(
-            hotp.verify_with_resync("000000", 100, 10).unwrap(),
-            None
-        );
+        assert_eq!(hotp.verify_with_resync("000000", 100, 10).unwrap(), None);
     }
 
     #[test]
@@ -403,7 +400,11 @@ mod tests {
         // Caller LUPA update stored counter. Replay kode yang sama →
         // tetap diterima (BAD, makanya update wajib).
         let r2 = hotp.verify_with_resync(&code, stored, 5).unwrap();
-        assert_eq!(r2, Some(12), "tanpa update counter, replay LOLOS — itulah kenapa update wajib");
+        assert_eq!(
+            r2,
+            Some(12),
+            "tanpa update counter, replay LOLOS — itulah kenapa update wajib"
+        );
 
         // Setelah update counter dengan benar:
         stored = 12 + 1; // = 13

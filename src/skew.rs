@@ -218,7 +218,11 @@ impl ClockSkewDetector {
         let mean_offset = state.sum as f64 / sample_count as f64;
 
         let edge_hits = if window_used > 0 {
-            state.buffer.iter().filter(|&&x| x.abs() == window_used).count()
+            state
+                .buffer
+                .iter()
+                .filter(|&&x| x.abs() == window_used)
+                .count()
         } else {
             0
         };
@@ -367,7 +371,11 @@ mod tests {
             d.record(10, 1);
         }
         let r1 = d.report();
-        assert!((r1.mean_offset - 10.0).abs() < 0.001, "fase 1 mean: {}", r1.mean_offset);
+        assert!(
+            (r1.mean_offset - 10.0).abs() < 0.001,
+            "fase 1 mean: {}",
+            r1.mean_offset
+        );
         assert_eq!(r1.non_zero_count, 8);
         assert_eq!(r1.sample_count, 8);
 
@@ -378,8 +386,16 @@ mod tests {
         // Buffer sekarang seharusnya [0,0,0,0,0,0,0,0]. Kalau cached sum
         // tidak update incremental dengan benar, mean masih akan 10.
         let r2 = d.report();
-        assert!(r2.mean_offset.abs() < 0.001, "fase 2 mean salah: {}", r2.mean_offset);
-        assert_eq!(r2.non_zero_count, 0, "non_zero salah: {}", r2.non_zero_count);
+        assert!(
+            r2.mean_offset.abs() < 0.001,
+            "fase 2 mean salah: {}",
+            r2.mean_offset
+        );
+        assert_eq!(
+            r2.non_zero_count, 0,
+            "non_zero salah: {}",
+            r2.non_zero_count
+        );
         assert_eq!(r2.sample_count, 8);
     }
 
