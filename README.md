@@ -1,5 +1,9 @@
 # genotp
 
+[![Crates.io](https://img.shields.io/crates/v/genotp.svg)](https://crates.io/crates/genotp)
+[![Docs.rs](https://docs.rs/genotp/badge.svg)](https://docs.rs/genotp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Security-focused OTP library.
 Full implementation of **HOTP (RFC 4226)** and **TOTP (RFC 6238)** plus
 advanced features: **context binding**, **per-context replay isolation**, and
