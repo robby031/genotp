@@ -1,0 +1,27 @@
+[package]
+name = "genotp-ffi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "FFI bindings for genotp library"
+readme = "../README.md"
+keywords = ["otp", "hotp", "totp", "ffi", "c"]
+categories = ["external-ffi-bindings"]
+
+[lib]
+name = "genotp_ffi"
+path = "src/lib.rs"
+# cdylib   = shared library (.so/.dylib/.dll) for dlopen / runtime linking
+# staticlib = static archive (.a/.lib) for static linking into other binaries
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+genotp = { path = "../genotp", features = ["std", "alloc"] }
+
+[build-dependencies]
+# Auto-generate include/genotp.h from src/lib.rs so the C header is always
+# in sync. Opt out by setting GENOTP_FFI_SKIP_CBINDGEN=1 (e.g. on docs.rs
+# or hermetic builds where the source tree must not be modified).
+cbindgen = { version = "0.29", default-features = false }

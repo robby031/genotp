@@ -1,44 +1,10 @@
-[package]
-name = "genotp"
+[workspace]
+members = ["genotp", "genotp-ffi"]
+resolver = "2"
+
+[workspace.package]
 version = "0.3.0"
 edition = "2024"
 authors = ["Bagus Dwi Harianto <robbymangkualam2000@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/robby031/genotp"
-description = "Secure HOTP/TOTP library implementing RFC 4226 and RFC 6238"
-readme = "README.md"
-keywords = ["otp", "hotp", "totp", "crypto", "authentication"]
-categories = ["authentication", "cryptography"]
-
-[lib]
-name = "genotp"
-path = "src/lib.rs"
-
-[features]
-default = ["std", "alloc"]
-std = ["getrandom/std"]
-alloc = []
-serde = ["dep:serde", "dep:serde_json"]
-
-[dependencies]
-hmac = "0.13"
-sha1 = "0.11"
-sha2 = "0.11"
-getrandom = "0.4"
-base32 = "0.5"
-zeroize = "1.8"
-serde = { version = "1.0", features = ["derive"], optional = true }
-serde_json = { version = "1.0", optional = true }
-percent-encoding = "2.3"
-
-[dev-dependencies]
-proptest = "1.4"
-criterion = "0.8"
-
-[[bench]]
-name = "otp_bench"
-harness = false
-
-[profile.release]
-opt-level = 3
-lto = true
