@@ -349,6 +349,18 @@ unsafe fn c_str_to_str<'a>(ptr: *const c_char) -> Result<&'a str, GenOtpErrorCod
     c_str.to_str().map_err(|_| GenOtpErrorCode::InvalidUtf8)
 }
 
+/// Convert a nullable C string to `String`. Returns error if null or non-UTF-8.
+unsafe fn c_str_to_string(ptr: *const c_char) -> Result<String, GenOtpErrorCode> {
+    if ptr.is_null() {
+        return Err(GenOtpErrorCode::NullPointer);
+    }
+    let c_str = unsafe { CStr::from_ptr(ptr) };
+    c_str
+        .to_str()
+        .map(|s| s.to_string())
+        .map_err(|_| GenOtpErrorCode::InvalidUtf8)
+}
+
 // ==================== Memory Management ====================
 
 #[unsafe(no_mangle)]
@@ -1151,19 +1163,19 @@ pub extern "C" fn genotp_otpauth_uri_new(
     if out_uri.is_null() {
         return GenOtpErrorCode::NullPointer;
     }
-    let label_str = match unsafe { c_str_to_str(label) } {
+    let label_str = match unsafe { c_str_to_string(label) } {
         Ok(s) => s,
         Err(e) => return e,
     };
-    let secret_str = match unsafe { c_str_to_str(secret) } {
+    let secret_str = match unsafe { c_str_to_string(secret) } {
         Ok(s) => s,
         Err(e) => return e,
     };
 
     let handle = UriHandle {
         typ: otp_type.into(),
-        label: label_str.to_string(),
-        secret: secret_str.to_string(),
+        label: label_str,
+        secret: secret_str,
         issuer: None,
         algorithm: None,
         digits: None,
@@ -1186,12 +1198,12 @@ pub extern "C" fn genotp_otpauth_uri_set_issuer(
     if uri.is_null() {
         return GenOtpErrorCode::NullPointer;
     }
-    let issuer_str = match unsafe { c_str_to_str(issuer) } {
+    let issuer_str = match unsafe { c_str_to_string(issuer) } {
         Ok(s) => s,
         Err(e) => return e,
     };
     let handle = unsafe { &mut *(uri as *mut UriHandle) };
-    handle.issuer = Some(issuer_str.to_string());
+    handle.issuer = Some(issuer_str);
     GenOtpErrorCode::Success
 }
 
