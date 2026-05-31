@@ -120,17 +120,20 @@ impl OtpContextBuilder {
 
 fn normalize_origin(origin: &str) -> String {
     let lower = origin.trim().to_lowercase();
-    let no_fragment = lower.split('#').next().unwrap_or("");
-    let no_query = no_fragment.split('?').next().unwrap_or("");
-    // Buang path tapi simpan scheme://host[:port].
-    if let Some(scheme_end) = no_query.find("://") {
-        let after_scheme = &no_query[scheme_end + 3..];
-        let host_end = after_scheme.find('/').unwrap_or(after_scheme.len());
-        let trimmed = &no_query[..scheme_end + 3 + host_end];
-        trimmed.trim_end_matches('/').to_string()
-    } else {
-        no_query.trim_end_matches('/').to_string()
-    }
+
+    let no_fragment = lower.split_once('#').map_or(lower.as_str(), |(a, _)| a);
+
+    let no_query = no_fragment.split_once('?').map_or(no_fragment, |(a, _)| a);
+
+    let result = match no_query.split_once("://") {
+        Some((scheme, rest)) => {
+            let host_part = rest.split_once('/').map_or(rest, |(host, _)| host);
+            format!("{scheme}://{host_part}")
+        }
+        None => no_query.to_string(),
+    };
+
+    result.trim_end_matches('/').to_string()
 }
 
 #[cfg(test)]
@@ -187,6 +190,106 @@ mod tests {
             .origin("https://example.com:8443")
             .build();
         assert_eq!(a, b);
+    }
+
+    // ====================================================================
+    // UTF-8 safety regression tests
+    //
+    // Regression untuk bug-class "byte index X is not a char boundary"
+    // yang terjadi kalau slicing string pakai manual byte arithmetic
+    // (`s[a..b]`) di mana `a` atau `b` jatuh di tengah multi-byte UTF-8
+    // sequence. Implementasi pakai `split_once`/`splitn` yang aman.
+    // ====================================================================
+
+    #[test]
+    fn normalize_origin_handles_idn_japanese() {
+        // IDN dengan kanji 3-byte per char.
+        let _ = OtpContext::builder()
+            .origin("https://日本.example.com/path")
+            .build();
+        // Tidak panic. Test ini akan crash kalau ada slicing manual.
+    }
+
+    #[test]
+    fn normalize_origin_handles_idn_german() {
+        let a = OtpContext::builder().origin("https://Bücher.com").build();
+        let b = OtpContext::builder().origin("https://bücher.com").build();
+        assert_eq!(a, b, "lowercase IDN harus konsisten");
+    }
+
+    #[test]
+    fn normalize_origin_handles_emoji_in_path() {
+        let _ = OtpContext::builder()
+            .origin("https://example.com/🎉/celebrate")
+            .build();
+    }
+
+    #[test]
+    fn normalize_origin_handles_emoji_in_query() {
+        let _ = OtpContext::builder()
+            .origin("https://example.com?q=🎉")
+            .build();
+    }
+
+    #[test]
+    fn normalize_origin_handles_emoji_in_fragment() {
+        let _ = OtpContext::builder()
+            .origin("https://example.com#🎉")
+            .build();
+    }
+
+    #[test]
+    fn normalize_origin_handles_zero_width_chars() {
+        let _ = OtpContext::builder()
+            .origin("https://example.com\u{200B}/path")
+            .build();
+    }
+
+    #[test]
+    fn normalize_origin_handles_mixed_unicode_everywhere() {
+        // Worst case: non-ASCII di scheme position (invalid URL tapi
+        // user bisa kirim apa saja), host, path, query, fragment.
+        let _ = OtpContext::builder()
+            .origin("日本://例え.jp/パス?クエリ=値#フラグメント")
+            .build();
+        // Tidak panic, hasil mungkin "aneh" tapi well-defined.
+    }
+
+    #[test]
+    fn normalize_origin_handles_no_scheme_with_unicode() {
+        // String tanpa scheme yang ada Unicode-nya.
+        let a = OtpContext::builder().origin("例え.jp/path").build();
+        let b = OtpContext::builder().origin("例え.jp").build();
+        // Tanpa scheme, kita tidak strip path — tapi tetap tidak panic.
+        // Behavior boleh berbeda, yang penting tidak crash.
+        let _ = a;
+        let _ = b;
+    }
+
+    #[test]
+    fn normalize_origin_handles_empty_and_edge_cases() {
+        // Edge cases yang tidak boleh panic.
+        let _ = OtpContext::builder().origin("").build();
+        let _ = OtpContext::builder().origin("://").build();
+        let _ = OtpContext::builder().origin("https://").build();
+        let _ = OtpContext::builder().origin("/").build();
+        let _ = OtpContext::builder().origin("a").build();
+        let _ = OtpContext::builder().origin("?").build();
+        let _ = OtpContext::builder().origin("#").build();
+    }
+
+    #[test]
+    fn normalize_origin_idn_path_strip_works_correctly() {
+        // Pastikan path dengan IDN host TETAP di-strip dengan benar
+        // (regression check selain panic — output benar).
+        let with_path = OtpContext::builder()
+            .origin("https://日本.com/secret/path")
+            .build();
+        let without_path = OtpContext::builder().origin("https://日本.com").build();
+        assert_eq!(
+            with_path, without_path,
+            "path setelah IDN host harus di-strip"
+        );
     }
 
     #[test]

@@ -132,6 +132,13 @@ mentions its module.
   (preventing newly deserialized struct from having empty secret
   that produces wrong code silently).
 
+- **Base32 secret with padding `=` reaches otpauth URI** → percent-encoded
+  to `%3D` → Google/Microsoft Authenticator reject the QR code → entire
+  2FA enrollment flow fails silently.
+  → `OtpAuthUri::build()` automatically strips `=` and whitespace from
+  the secret before percent-encoding. Per Google Key URI Format spec:
+  "padding... should be omitted".
+
 - **HOTP user counter drifts far ahead of server counter** because user
   pressed generate button multiple times without submitting → legitimate
   user gets locked out with no safe recovery path.

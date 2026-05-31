@@ -317,7 +317,33 @@ let uri = OtpAuthUri::new(
 Semua label, issuer, dan secret otomatis **percent-encoded** sesuai RFC 3986
 sehingga karakter spesial (`:`, `@`, spasi, `&`, dll) tidak merusak URI.
 
-Render ke QR code (dengan crate `qrcode`):
+### Normalisasi secret otomatis
+
+Per Google Key URI Format spec, parameter `secret` **harus** Base32 tanpa
+padding `=`. Library otomatis melakukan normalisasi sebelum membangun URI:
+
+- Strip semua karakter padding `=` (umum dari encoder yang default-nya padding ON)
+- Strip whitespace (umum dari user yang copy-paste secret dengan spasi/newline)
+
+Contoh:
+
+```rust
+// Input yang "kotor" — secret dari sumber eksternal:
+let secret_messy = "  JBSWY3DP EHPK3PXP=  ".to_string();
+
+let uri = OtpAuthUri::new(OtpType::TOTP, "label".into(), secret_messy).build();
+// uri = "otpauth://totp/label?secret=JBSWY3DPEHPK3PXP"
+//                              ^^^^^^^^^^^^^^^^^^^^^^^^
+//                              Bersih, tanpa %3D atau %20.
+```
+
+**Kenapa ini penting:** kalau padding `=` masuk ke URI, percent-encoding
+akan mengubahnya jadi `%3D`. Google Authenticator dan Microsoft
+Authenticator **menolak** secret yang mengandung `%3D` setelah decode —
+mereka expect alphabet base32 murni (A-Z, 2-7). Tanpa normalisasi ini,
+QR code Anda akan ditolak silently oleh authenticator app.
+
+### Render ke QR code (dengan crate `qrcode`):
 
 ```rust
 use qrcode::QrCode;

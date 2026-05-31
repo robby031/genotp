@@ -317,7 +317,34 @@ let uri = OtpAuthUri::new(
 All labels, issuers, and secrets automatically **percent-encoded** per RFC 3986
 so special characters (`:`, `@`, space, `&`, etc.) don't break URI.
 
-Render to QR code (with `qrcode` crate):
+### Automatic secret normalization
+
+Per Google's Key URI Format spec, the `secret` parameter **must** be
+Base32 without padding `=`. The library automatically normalizes before
+building the URI:
+
+- Strips all padding `=` characters (common from encoders with padding ON by default)
+- Strips whitespace (common from users who copy-paste secrets with spaces/newlines)
+
+Example:
+
+```rust
+// Messy input — secret from external source:
+let secret_messy = "  JBSWY3DP EHPK3PXP=  ".to_string();
+
+let uri = OtpAuthUri::new(OtpType::TOTP, "label".into(), secret_messy).build();
+// uri = "otpauth://totp/label?secret=JBSWY3DPEHPK3PXP"
+//                              ^^^^^^^^^^^^^^^^^^^^^^^^
+//                              Clean, no %3D or %20.
+```
+
+**Why this matters:** if padding `=` reaches the URI, percent-encoding
+converts it to `%3D`. Google Authenticator and Microsoft Authenticator
+**reject** secrets containing `%3D` after decode — they expect pure
+base32 alphabet (A-Z, 2-7). Without this normalization, your QR code
+would be silently rejected by the authenticator app.
+
+### Render to QR code (with `qrcode` crate):
 
 ```rust
 use qrcode::QrCode;

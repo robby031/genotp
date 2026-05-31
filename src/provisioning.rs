@@ -34,6 +34,12 @@ fn encode(s: &str) -> String {
     utf8_percent_encode(s, OTPAUTH_ENCODE_SET).to_string()
 }
 
+fn normalize_base32_secret(s: &str) -> String {
+    s.chars()
+        .filter(|c| *c != '=' && !c.is_whitespace())
+        .collect()
+}
+
 pub struct OtpAuthUri {
     typ: OtpType,
     label: String,
@@ -103,7 +109,9 @@ impl OtpAuthUri {
         uri.push('/');
         uri.push_str(&encode(&self.label));
         uri.push_str("?secret=");
-        uri.push_str(&encode(&self.secret));
+
+        let normalized = normalize_base32_secret(&self.secret);
+        uri.push_str(&encode(&normalized));
 
         if let Some(ref issuer) = self.issuer {
             uri.push_str("&issuer=");
@@ -205,7 +213,6 @@ mod tests {
         let result = uri.build();
 
         assert!(result.starts_with("otpauth://totp/"));
-        // Label-nya ":" dan "@" sudah di-encode (sesuai RFC 3986 dan otpauth spec).
         assert!(result.contains("ACME%3Aalice%40example.com"));
         assert!(result.contains("secret=JBSWY3DPEHPK3PXP"));
         assert!(result.contains("issuer=ACME"));
@@ -242,7 +249,6 @@ mod tests {
 
     #[test]
     fn test_google_authenticator_sha256_compatibility() {
-        // Test URI dengan SHA256 yang kompatibel dengan Google Authenticator
         let uri = OtpAuthUri::new(
             OtpType::TOTP,
             "Service:user@service.com".to_string(),
@@ -259,7 +265,6 @@ mod tests {
 
     #[test]
     fn test_google_authenticator_sha512_compatibility() {
-        // Test URI dengan SHA512 yang kompatibel dengan Google Authenticator
         let uri = OtpAuthUri::new(
             OtpType::TOTP,
             "Service:user@service.com".to_string(),
@@ -277,8 +282,6 @@ mod tests {
 
     #[test]
     fn test_uri_escaping() {
-        // Karakter khusus pada label harus di-percent-encode:
-        // ':' -> %3A, '+' -> %2B, '@' -> %40
         let uri = OtpAuthUri::new(
             OtpType::TOTP,
             "Service:user+test@example.com".to_string(),
@@ -292,7 +295,6 @@ mod tests {
 
     #[test]
     fn test_uri_encoding_spaces_and_ampersand() {
-        // Spasi dan & pada issuer/label akan merusak URI kalau tidak di-encode.
         let uri = OtpAuthUri::new(
             OtpType::TOTP,
             "My Co:alice@example.com".to_string(),
@@ -317,5 +319,91 @@ mod tests {
         assert!(result.contains("otpauth://totp/"));
         assert!(result.contains("secret=JBSWY3DPEHPK3PXP"));
         assert!(!result.contains("issuer="));
+    }
+
+    #[test]
+    fn test_secret_with_padding_gets_stripped() {
+        let uri = OtpAuthUri::new(
+            OtpType::TOTP,
+            "Example:user".to_string(),
+            "JBSWY3DPEHPK3PXP=".to_string(),
+        )
+        .build();
+
+        assert!(uri.contains("secret=JBSWY3DPEHPK3PXP"));
+        assert!(
+            !uri.contains("%3D"),
+            "padding `=` tidak boleh muncul sebagai %3D"
+        );
+        assert!(
+            !uri.contains("PXP="),
+            "padding `=` di value secret harus di-strip"
+        );
+    }
+
+    #[test]
+    fn test_secret_with_multiple_padding_chars() {
+        let uri = OtpAuthUri::new(
+            OtpType::TOTP,
+            "test".to_string(),
+            "ABCDEFGH====".to_string(),
+        )
+        .build();
+
+        assert!(uri.contains("secret=ABCDEFGH"));
+        assert!(!uri.contains("%3D"));
+    }
+
+    #[test]
+    fn test_secret_with_whitespace_gets_cleaned() {
+        let uri = OtpAuthUri::new(
+            OtpType::TOTP,
+            "test".to_string(),
+            "  JBSWY3DP EHPK3PXP  ".to_string(),
+        )
+        .build();
+
+        assert!(uri.contains("secret=JBSWY3DPEHPK3PXP"));
+        assert!(!uri.contains(' '));
+        assert!(
+            !uri.contains("%20"),
+            "whitespace tidak boleh percent-encoded"
+        );
+    }
+
+    #[test]
+    fn test_clean_secret_passthrough_unchanged() {
+        let uri = OtpAuthUri::new(
+            OtpType::TOTP,
+            "test".to_string(),
+            "JBSWY3DPEHPK3PXP".to_string(),
+        )
+        .build();
+
+        assert!(uri.contains("secret=JBSWY3DPEHPK3PXP"));
+    }
+
+    #[test]
+    fn test_secret_with_tab_and_newline() {
+        let uri = OtpAuthUri::new(
+            OtpType::TOTP,
+            "test".to_string(),
+            "JBSWY3DP\tEHPK3PXP\n".to_string(),
+        )
+        .build();
+
+        assert!(uri.contains("secret=JBSWY3DPEHPK3PXP"));
+        assert!(!uri.contains("%09")); // tab
+        assert!(!uri.contains("%0A")); // newline
+    }
+
+    #[test]
+    fn test_normalize_base32_secret_helper() {
+        assert_eq!(normalize_base32_secret("ABCD"), "ABCD");
+        assert_eq!(normalize_base32_secret("ABCD="), "ABCD");
+        assert_eq!(normalize_base32_secret("ABCD===="), "ABCD");
+        assert_eq!(normalize_base32_secret(" A B C "), "ABC");
+        assert_eq!(normalize_base32_secret("=A=B=C="), "ABC");
+        assert_eq!(normalize_base32_secret(""), "");
     }
 }

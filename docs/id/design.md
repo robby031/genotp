@@ -131,6 +131,13 @@ disebutkan modulnya.
   (mencegah struct yang baru di-deserialize memiliki secret kosong
   yang menghasilkan kode salah diam-diam).
 
+- **Secret base32 dengan padding `=` masuk ke otpauth URI** → percent-encoded
+  jadi `%3D` → Google/Microsoft Authenticator menolak QR code → seluruh
+  flow enrollment 2FA gagal silently.
+  → `OtpAuthUri::build()` otomatis strip `=` dan whitespace dari secret
+  sebelum percent-encoding. Per Google Key URI Format spec: "padding...
+  should be omitted".
+
 - **HOTP counter user "lari" jauh dari counter server** karena user
   menekan tombol generate berkali-kali tanpa submit → user normal jadi
   ke-lock tanpa cara recovery yang aman.
