@@ -185,7 +185,8 @@ let secret = KeyGenerator::generate_default_secret().unwrap();
 let secret_256 = KeyGenerator::generate_secret(256).unwrap();
 ```
 
-Entropy source: `ax-rnd` (OS-backed CSPRNG).
+Entropy source: `getrandom` (OS-backed CSPRNG: `getrandom(2)` on Linux,
+`arc4random_buf` on macOS, `BCryptGenRandom` on Windows).
 
 ---
 

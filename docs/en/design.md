@@ -125,7 +125,7 @@ genotp/
 ├── base32           — encode/decode RFC 4648 without padding
 ├── constant_time    — wrapper `subtle::ConstantTimeEq` for &str
 ├── error            — GenOtpError + Display + std::error::Error
-├── key              — KeyGenerator (CSPRNG via ax-rnd)
+├── key              — KeyGenerator (CSPRNG via getrandom / OS entropy)
 ├── hotp             — HOTP::{new, generate, verify, generate_bound, verify_bound}
 ├── totp             — TOTP::{new, generate, verify, *_bound, verify_tracking}
 ├── builder          — TotpBuilder, HotpBuilder
@@ -207,10 +207,12 @@ struct is dropped, before allocator returns memory to pool.
 
 ### Entropy source
 
-`ax-rnd::fill` (OS-backed CSPRNG: `getrandom` on Linux, `RtlGenRandom` on
-Windows, `SecRandomCopyBytes` on macOS). No userspace PRNG in
-library — if OS doesn't provide, library fails (acceptable: no
-fallback weaker than OS RNG allowed).
+`getrandom::fill` (OS-backed CSPRNG: `getrandom(2)` on Linux, `arc4random_buf`
+on macOS / *BSD, `BCryptGenRandom` on Windows). The `getrandom` crate is the
+de-facto standard in Rust for cryptographic entropy — used by `rand::OsRng`,
+`ring`, `rustls`, `argon2`, etc. No userspace PRNG (fastrand, SplitMix,
+xoshiro) in the library — if the OS does not provide entropy, the library
+fails (acceptable: no fallback weaker than OS RNG allowed).
 
 ---
 
@@ -437,7 +439,7 @@ Modules divided into two tiers:
 - `algorithm`, `error`, `constant_time`, `base32`, `hotp`, `totp`
 
 **Tier 2 — requires `std`:**
-- `key` (needs `ax-rnd` which needs OS RNG)
+- `key` (needs `getrandom` which needs OS RNG)
 - `verification` (needs `HashSet`, `Mutex`)
 - `provisioning` (needs complex `String` formatting)
 - `context`, `skew`, `metrics`, `builder`, `helpers`, `config`
