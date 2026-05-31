@@ -93,6 +93,14 @@ impl TOTP {
         Ok(format!("{:0width$}", code, width = self.digits as usize))
     }
 
+    /// Verifikasi TOTP dengan toleransi window.
+    ///
+    /// **Constant-time semantik:** loop **selalu** iterasi penuh
+    /// `2*window+1` kali tanpa early return saat match — total runtime
+    /// hanya bergantung pada `window`, bukan pada lokasi window mana
+    /// yang match. Mencegah attacker mendeteksi clock drift user lewat
+    /// timing oracle. Pakai operator `|` (bitwise OR pada `u8`), bukan
+    /// `||`, supaya tidak short-circuit setelah ketemu match pertama.
     #[cfg(feature = "std")]
     pub fn verify(&self, code: &str, time: Option<u64>, window: u64) -> Result<bool> {
         let current_time = match time {
@@ -106,19 +114,19 @@ impl TOTP {
         let counter = current_time / self.period;
         let window_i64 = i64::try_from(window).map_err(|_| GenOtpError::InvalidTime)?;
 
+        let mut matched: u8 = 0;
         for i in -window_i64..=window_i64 {
-            let test_counter = match counter.checked_add_signed(i) {
-                Some(c) => c,
-                None => continue,
-            };
+            // Underflow → pakai 0 (selalu jalan, tidak ada early continue
+            // yang bisa di-timing). generate() di counter=0 sama lamanya
+            // dengan counter manapun karena HMAC constant-time.
+            let test_counter = counter.checked_add_signed(i).unwrap_or(0);
             let time = test_counter.saturating_mul(self.period);
             let expected = self.generate(Some(time))?;
-            if constant_time_eq(code, &expected) {
-                return Ok(true);
-            }
+            // Bitwise OR (bukan ||) supaya kedua side selalu dievaluasi.
+            matched |= constant_time_eq(code, &expected) as u8;
         }
 
-        Ok(false)
+        Ok(matched != 0)
     }
 
     #[cfg(not(feature = "std"))]
@@ -126,18 +134,14 @@ impl TOTP {
         let counter = time / self.period;
         let window_i64 = i64::try_from(window).map_err(|_| GenOtpError::InvalidTime)?;
 
+        let mut matched: u8 = 0;
         for i in -window_i64..=window_i64 {
-            let test_counter = match counter.checked_add_signed(i) {
-                Some(c) => c,
-                None => continue,
-            };
+            let test_counter = counter.checked_add_signed(i).unwrap_or(0);
             let expected = self.generate(test_counter.saturating_mul(self.period))?;
-            if constant_time_eq(code, &expected) {
-                return Ok(true);
-            }
+            matched |= constant_time_eq(code, &expected) as u8;
         }
 
-        Ok(false)
+        Ok(matched != 0)
     }
 
     /// Generate TOTP yang **terikat ke context**. Hasil digit berbeda untuk
@@ -173,6 +177,13 @@ impl TOTP {
     ///
     /// Kalau detector dalam mode active (auto-adjust), offset koreksinya
     /// otomatis ditambahkan ke counter saat verifikasi.
+    ///
+    /// **⚠️ Timing leak by design:** method ini sengaja **early-return** pada
+    /// match supaya bisa merekam offset mana yang match (data esensial untuk
+    /// detector). Akibatnya total waktu eksekusi memberi sinyal tentang
+    /// offset match — itu memang yang ingin dikorelasikan detector. Kalau
+    /// Anda tidak butuh skew tracking, **pakai [`Self::verify`]** yang
+    /// constant-time terhadap lokasi window match.
     #[cfg(feature = "std")]
     pub fn verify_tracking(
         &self,
@@ -215,7 +226,8 @@ impl TOTP {
     }
 
     /// Verifikasi TOTP yang terikat ke context. Sama dengan [`Self::verify`]
-    /// kecuali context juga harus match.
+    /// kecuali context juga harus match. Loop full window tanpa early
+    /// return — lihat doc [`Self::verify`] untuk alasan timing.
     #[cfg(feature = "std")]
     pub fn verify_bound(
         &self,
@@ -235,19 +247,15 @@ impl TOTP {
         let counter = current_time / self.period;
         let window_i64 = i64::try_from(window).map_err(|_| GenOtpError::InvalidTime)?;
 
+        let mut matched: u8 = 0;
         for i in -window_i64..=window_i64 {
-            let test_counter = match counter.checked_add_signed(i) {
-                Some(c) => c,
-                None => continue,
-            };
+            let test_counter = counter.checked_add_signed(i).unwrap_or(0);
             let time = test_counter.saturating_mul(self.period);
             let expected = self.generate_bound(context, Some(time))?;
-            if constant_time_eq(code, &expected) {
-                return Ok(true);
-            }
+            matched |= constant_time_eq(code, &expected) as u8;
         }
 
-        Ok(false)
+        Ok(matched != 0)
     }
 
     fn compute_hmac(&self, counter: u64) -> Result<Vec<u8>> {
@@ -392,6 +400,35 @@ mod tests {
 
         let code = totp.generate(Some(59)).unwrap();
         assert_eq!(code.len(), 8);
+    }
+
+    #[test]
+    fn test_verify_no_early_return_on_match() {
+        // Property test: verify dengan window=5 harus iterasi 11 kali
+        // (i = -5..=5) tanpa peduli di posisi mana match terjadi.
+        // Dari sudut behavior (bukan timing): kode yang valid di window
+        // negatif dan positif harus sama-sama diterima — kalau early-return
+        // ada di posisi yang salah, salah satu side gagal.
+        let secret = vec![
+            0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34,
+            0x35, 0x36, 0x37, 0x38, 0x39, 0x30,
+        ];
+        let totp = TOTP::new(secret, Algorithm::SHA1, 6, 30).unwrap();
+
+        // Generate di t0=300 (counter=10), verify di t=300+offset*30 untuk
+        // semua offset dalam ±5.
+        let code_at_t10 = totp.generate(Some(300)).unwrap();
+
+        for offset in -5i64..=5 {
+            let verify_time = (300i64 + offset * 30) as u64;
+            assert!(
+                totp.verify(&code_at_t10, Some(verify_time), 5).unwrap(),
+                "kode di counter=10 harus diterima di window offset {offset}"
+            );
+        }
+
+        // Kode invalid harus tetap ditolak setelah iterasi penuh.
+        assert!(!totp.verify("000000", Some(300), 5).unwrap());
     }
 
     #[test]

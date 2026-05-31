@@ -37,10 +37,10 @@ pub mod skew;
 
 pub use algorithm::Algorithm;
 pub use base32::{decode, encode};
-pub use constant_time::constant_time_eq;
+pub use constant_time::{constant_time_eq, constant_time_eq_bytes};
 pub use error::{GenOtpError, Result};
 pub use hotp::HOTP;
-pub use key::KeyGenerator;
+pub use key::{DEFAULT_SECRET_BYTES, KeyGenerator, MIN_SECRET_BYTES};
 pub use totp::TOTP;
 
 #[cfg(feature = "std")]

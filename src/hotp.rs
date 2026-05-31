@@ -65,6 +65,68 @@ impl HOTP {
         Ok(constant_time_eq(code, &expected))
     }
 
+    /// Verifikasi HOTP dengan **look-ahead resynchronization** (RFC 4226 §7.4).
+    ///
+    /// Mencoba `counter`, `counter+1`, ..., `counter+look_ahead`. Kalau
+    /// match, kembalikan `Ok(Some(matched_counter))` — caller **wajib**
+    /// update counter yang disimpan ke `matched_counter + 1` agar kode
+    /// tersebut tidak bisa di-replay.
+    ///
+    /// **Use case nyata:** user tidak sengaja menekan tombol generate di
+    /// hardware token / authenticator app beberapa kali tanpa men-submit.
+    /// Counter user maju (mis. ke 13), server masih di 10. Tanpa look-ahead,
+    /// semua kode user akan ditolak sampai counter di-reset manual.
+    /// Nilai `look_ahead` yang umum: 3-10. RFC 4226 merekomendasikan
+    /// nilai kecil untuk menghindari menambah serangan brute-force.
+    ///
+    /// **Update counter wajib:** kalau caller TIDAK update counter
+    /// tersimpan setelah match, attacker yang mengintercept satu kode
+    /// bisa men-replay-nya berkali-kali dalam window look-ahead.
+    ///
+    /// **⚠️ Timing leak by design:** method ini early-return saat match
+    /// dan total runtime memberi sinyal offset mana yang match. Itu memang
+    /// data yang dibutuhkan caller (untuk update counter). Kalau Anda
+    /// tidak butuh resync, pakai [`Self::verify`] yang strict exact-match.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use genotp::{Algorithm, HOTP};
+    /// # let secret = vec![0u8; 20];
+    /// let hotp = HOTP::new(secret, Algorithm::SHA1, 6).unwrap();
+    /// let stored_counter: u64 = 10;
+    /// let user_submitted = hotp.generate(13).unwrap(); // user 3 langkah di depan
+    ///
+    /// match hotp.verify_with_resync(&user_submitted, stored_counter, 5).unwrap() {
+    ///     Some(matched) => {
+    ///         // WAJIB: update counter tersimpan ke matched + 1.
+    ///         let new_stored = matched + 1; // = 14
+    ///         println!("Login OK, update counter ke {new_stored}");
+    ///     }
+    ///     None => {
+    ///         println!("Kode invalid (di luar window look-ahead).");
+    ///     }
+    /// }
+    /// ```
+    pub fn verify_with_resync(
+        &self,
+        code: &str,
+        counter: u64,
+        look_ahead: u64,
+    ) -> Result<Option<u64>> {
+        for i in 0..=look_ahead {
+            let test_counter = match counter.checked_add(i) {
+                Some(c) => c,
+                None => break,
+            };
+            let expected = self.generate(test_counter)?;
+            if constant_time_eq(code, &expected) {
+                return Ok(Some(test_counter));
+            }
+        }
+        Ok(None)
+    }
+
     /// Generate HOTP yang **terikat ke context**. Lihat dokumentasi
     /// [`crate::context::OtpContext`] untuk detail.
     #[cfg(feature = "std")]
@@ -258,6 +320,96 @@ mod tests {
                 hotp.generate_bound(c, &empty).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn test_verify_with_resync_matches_in_lookahead_window() {
+        // Skenario nyata: user tekan tombol generate 3x tanpa submit.
+        // Counter user = 13, counter server = 10. Tanpa resync ditolak.
+        let secret = vec![
+            0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34,
+            0x35, 0x36, 0x37, 0x38, 0x39, 0x30,
+        ];
+        let hotp = HOTP::new(secret, Algorithm::SHA1, 6).unwrap();
+
+        let stored = 10u64;
+        let user_code = hotp.generate(13).unwrap(); // user 3 langkah di depan
+
+        // verify strict harus gagal.
+        assert!(!hotp.verify(&user_code, stored).unwrap());
+
+        // verify_with_resync(look_ahead=5) harus berhasil dan kembalikan 13.
+        let result = hotp.verify_with_resync(&user_code, stored, 5).unwrap();
+        assert_eq!(result, Some(13));
+
+        // Look-ahead window terlalu kecil → tetap gagal.
+        let result_short = hotp.verify_with_resync(&user_code, stored, 2).unwrap();
+        assert_eq!(result_short, None);
+    }
+
+    #[test]
+    fn test_verify_with_resync_match_at_current_counter() {
+        // Kalau kode user persis di counter server, harus return Some(counter).
+        let secret = vec![0x11u8; 20];
+        let hotp = HOTP::new(secret, Algorithm::SHA1, 6).unwrap();
+
+        let code = hotp.generate(42).unwrap();
+        assert_eq!(hotp.verify_with_resync(&code, 42, 5).unwrap(), Some(42));
+    }
+
+    #[test]
+    fn test_verify_with_resync_returns_none_for_invalid_code() {
+        let secret = vec![0x22u8; 20];
+        let hotp = HOTP::new(secret, Algorithm::SHA1, 6).unwrap();
+
+        assert_eq!(
+            hotp.verify_with_resync("000000", 100, 10).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn test_verify_with_resync_handles_counter_overflow() {
+        // Edge case: counter mendekati u64::MAX, look_ahead bisa overflow.
+        // Harus exit loop dengan aman tanpa panic, dan tetap match kalau code valid.
+        let secret = vec![0x33u8; 20];
+        let hotp = HOTP::new(secret, Algorithm::SHA1, 6).unwrap();
+
+        let near_max = u64::MAX - 2;
+        let code = hotp.generate(near_max).unwrap();
+
+        // look_ahead=100 jauh melebihi sisa range; harus tetap nemu match
+        // di iterasi pertama tanpa overflow saat coba counter berikutnya.
+        let result = hotp.verify_with_resync(&code, near_max, 100).unwrap();
+        assert_eq!(result, Some(near_max));
+    }
+
+    #[test]
+    fn test_verify_with_resync_caller_must_update_counter() {
+        // Dokumentasi behavior: kalau caller tidak update stored counter
+        // setelah match, kode yang sama BISA di-replay di window berikutnya.
+        // Ini test bukan untuk validasi keamanan tapi untuk demonstrasi
+        // pentingnya kontrak update counter.
+        let secret = vec![0x44u8; 20];
+        let hotp = HOTP::new(secret, Algorithm::SHA1, 6).unwrap();
+
+        let mut stored = 10u64;
+        let code = hotp.generate(12).unwrap();
+
+        // Login pertama match di 12.
+        let r1 = hotp.verify_with_resync(&code, stored, 5).unwrap();
+        assert_eq!(r1, Some(12));
+
+        // Caller LUPA update stored counter. Replay kode yang sama →
+        // tetap diterima (BAD, makanya update wajib).
+        let r2 = hotp.verify_with_resync(&code, stored, 5).unwrap();
+        assert_eq!(r2, Some(12), "tanpa update counter, replay LOLOS — itulah kenapa update wajib");
+
+        // Setelah update counter dengan benar:
+        stored = 12 + 1; // = 13
+        // Replay kode lama (di counter 12) di window [13..=18] → tidak match.
+        let r3 = hotp.verify_with_resync(&code, stored, 5).unwrap();
+        assert_eq!(r3, None, "setelah counter di-update, replay ditolak");
     }
 
     #[test]

@@ -99,6 +99,45 @@ Parameters:
 - `algorithm`: `Algorithm::SHA1`, `SHA256`, or `SHA512`.
 - `digits`: 6, 7, or 8.
 
+### HOTP look-ahead resynchronization
+
+Practical issue: users sometimes press the generate button on a hardware
+token / app multiple times without submitting (accidentally, or misclick).
+The user's counter advances ahead of the server's. Without look-ahead,
+all subsequent codes would be rejected.
+
+RFC 4226 §7.4 defines **look-ahead resynchronization**: the server tries
+several future counters (`counter`, `counter+1`, ..., `counter+s`). The
+`verify_with_resync` method implements this:
+
+```rust
+let mut stored_counter: u64 = 10;  // server's last stored counter
+let user_code = "...";
+
+match hotp.verify_with_resync(user_code, stored_counter, 5).unwrap() {
+    Some(matched) => {
+        // MUST: update stored counter to matched + 1 so this code
+        // cannot be replayed.
+        stored_counter = matched + 1;
+        println!("Login OK, new counter: {stored_counter}");
+    }
+    None => {
+        println!("Invalid code or outside look-ahead window");
+    }
+}
+```
+
+**Choosing `look_ahead`:**
+- Too small → users who accidentally clicked multiple times get locked out
+- Too large → widens the brute-force window (attacker gets `look_ahead+1`×
+  chance per submission)
+- Recommended **3-10** for most use cases
+
+**Counter-update contract (mandatory):** if the caller does NOT update
+the stored counter to `matched + 1`, an attacker who intercepts one code
+can replay it multiple times within the look-ahead window. See
+[`docs/design.md`](./design.md) for security trade-off details.
+
 ---
 
 ## TOTP
@@ -175,6 +214,11 @@ let ok = verify_hotp_default(secret, &hotp_code, 0).unwrap();
 
 ## KeyGenerator
 
+Two variants: **heap-allocated** (for std/hosted) and **stack-friendly**
+(for embedded / no_std).
+
+### Heap-allocated (std)
+
 ```rust
 use genotp::KeyGenerator;
 
@@ -184,6 +228,45 @@ let secret = KeyGenerator::generate_default_secret().unwrap();
 // Custom bit length (must be multiple of 8, minimum 128)
 let secret_256 = KeyGenerator::generate_secret(256).unwrap();
 ```
+
+⚠️ **Important about returned `Vec<u8>`:** the Vec is **not** automatically
+zeroized on drop. Two scenarios:
+
+- **Safe**: if you immediately move it into `HOTP::new` / `TOTP::new`
+  (ownership transfers, those structs Zeroize on drop).
+- **Leak**: if you keep the Vec as a local variable that drops normally
+  without being passed to HOTP/TOTP, secret remnants persist in RAM
+  until the allocator overwrites that memory.
+
+For the latter case, wrap with `zeroize::Zeroizing`:
+
+```rust
+use zeroize::Zeroizing;
+let secret = Zeroizing::new(KeyGenerator::generate_secret(160).unwrap());
+// Access via &*secret. Auto-zeroize on drop, guaranteed no RAM remnants.
+```
+
+### Stack-friendly (no_std / embedded)
+
+For embedded contexts where every heap alloc is waste and causes
+fragmentation, use `fill_secret` with a buffer you allocate yourself
+(stack or static):
+
+```rust
+use genotp::{KeyGenerator, DEFAULT_SECRET_BYTES};
+
+// Stack buffer — zero heap alloc, no_std-friendly.
+let mut secret = [0u8; DEFAULT_SECRET_BYTES];   // = 20 bytes
+KeyGenerator::fill_secret(&mut secret).unwrap();
+
+// ... use secret ...
+
+// For explicit zeroize when done:
+use zeroize::Zeroize;
+secret.zeroize();
+```
+
+Validation: `fill_secret` rejects buffers < `MIN_SECRET_BYTES` (16 bytes / 128 bit).
 
 Entropy source: `getrandom` (OS-backed CSPRNG: `getrandom(2)` on Linux,
 `arc4random_buf` on macOS, `BCryptGenRandom` on Windows).

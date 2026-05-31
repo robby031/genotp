@@ -1,8 +1,7 @@
-use crate::constant_time::constant_time_eq;
+use crate::constant_time::{constant_time_eq, constant_time_eq_bytes};
 use crate::context::OtpContext;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use subtle::ConstantTimeEq;
 
 const DEFAULT_MAX_USED_CODES: usize = 10_000;
 
@@ -110,7 +109,12 @@ impl Verifier {
         // 3) Context match (constant-time) dan code match (constant-time).
         //    Dua-duanya dievaluasi sebelum branch supaya tidak ada timing
         //    side-channel yang ngeleak "context salah" vs "code salah".
-        let ctx_match: bool = issued_context.ct_eq(request_context).into();
+        //
+        //    Sengaja TIDAK pakai `subtle::ConstantTimeEq` karena impl-nya
+        //    untuk `[u8]` short-circuit kalau panjang berbeda — itu bisa
+        //    leak panjang `issued_context` server lewat timing. Pakai
+        //    helper kita yang loop full max(len_a, len_b) iterasi.
+        let ctx_match = constant_time_eq_bytes(issued_context, request_context);
         let code_match = constant_time_eq(code, expected);
 
         if !(ctx_match && code_match) {

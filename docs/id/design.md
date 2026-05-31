@@ -87,9 +87,30 @@ disebutkan modulnya.
 
 - **Timing attack pada perbandingan kode** — penyerang mengukur waktu
   respons untuk menebak digit per posisi.
-  → `subtle::ConstantTimeEq` di semua perbandingan kode dan context.
+  → Helper `constant_time_eq` / `constant_time_eq_bytes` (custom impl yang
+  tidak short-circuit pada length mismatch, beda dengan `subtle::ct_eq`).
+
+- **Timing oracle pada loop window TOTP** — penyerang mengukur runtime
+  `verify(code, time, window)` untuk men-derive di window offset mana
+  match terjadi → ekstrak clock drift user.
+  → Loop `verify` selalu iterasi penuh `2*window+1` kali tanpa early-return,
+  pakai bitwise OR accumulator. `verify_tracking` dikecualikan (timing leak
+  by design — itu input untuk skew detector).
+
+- **Length oracle pada context comparison** — penyerang mengontrol panjang
+  context request, mengukur timing untuk men-derive panjang context server.
+  → `constant_time_eq_bytes` selalu loop `max(len_a, len_b)` iterasi.
 
 ### C. Penyerang dengan akses memory / proses
+
+- **Recovery secret dari heap setelah `generate_secret()` tanpa di-pass
+  ke HOTP/TOTP** — `Vec<u8>` yang di-return tidak otomatis di-zeroize
+  saat drop. Sisa byte bertahan di RAM sampai allocator menimpa.
+  → Didokumentasikan eksplisit di method doc + `docs/usage.md`. Pakai
+  `zeroize::Zeroizing<Vec<u8>>` wrapper untuk kasus secret yang
+  disimpan di luar HOTP/TOTP. Untuk no_std/embedded, pakai
+  `KeyGenerator::fill_secret(&mut [u8])` ke buffer stack/static yang
+  caller bisa zeroize sendiri.
 
 - **Recovery secret dari heap** — setelah TOTP/HOTP di-drop, sisa byte
   secret bisa diambil dari memory.
@@ -110,6 +131,15 @@ disebutkan modulnya.
   (mencegah struct yang baru di-deserialize memiliki secret kosong
   yang menghasilkan kode salah diam-diam).
 
+- **HOTP counter user "lari" jauh dari counter server** karena user
+  menekan tombol generate berkali-kali tanpa submit → user normal jadi
+  ke-lock tanpa cara recovery yang aman.
+  → `HOTP::verify_with_resync(code, counter, look_ahead)` mengimplementasikan
+  RFC 4226 §7.4. Mengembalikan `Some(matched_counter)` supaya caller bisa
+  update stored counter ke `matched + 1`. Tanpa update counter, kode bisa
+  di-replay dalam window look-ahead — kontrak ini didokumentasikan
+  eksplisit di method.
+
 ### E. Penyerang pasif yang membaca log/error
 
 - **Leak secret atau context lewat error message.**
@@ -124,7 +154,7 @@ disebutkan modulnya.
 genotp/
 ├── algorithm        — enum Algorithm (SHA1/256/512)
 ├── base32           — encode/decode RFC 4648 tanpa padding
-├── constant_time    — wrapper `subtle::ConstantTimeEq` untuk &str
+├── constant_time    — true constant-time comparison (no length-leak short-circuit)
 ├── error            — GenOtpError + Display + std::error::Error
 ├── key              — KeyGenerator (CSPRNG via getrandom / OS entropy)
 ├── hotp             — HOTP::{new, generate, verify, generate_bound, verify_bound}
@@ -187,18 +217,79 @@ ke integer di bahasa lain (yang mungkin signed-only) tetap konsisten.
 ### Constant-time comparison
 
 Semua perbandingan yang menyentuh secret atau context dilakukan dengan
-`subtle::ConstantTimeEq`. Modul `constant_time` membungkus untuk `&str`.
-Verifier juga membandingkan context bytes dengan `ct_eq`.
+helper di modul `constant_time` — **bukan** `subtle::ConstantTimeEq`.
 
-Penting: branching setelah perbandingan tetap dilakukan setelah kedua
-perbandingan selesai untuk mencegah short-circuit early-return yang bisa
-ngeleak "context salah" vs "code salah":
+**Mengapa tidak `subtle`?** `subtle::ConstantTimeEq for [u8]` melakukan
+early-return saat panjang dua slice berbeda (terdokumentasi di crate-nya).
+Akibatnya attacker yang bisa mengontrol panjang input bisa men-deteksi
+panjang referensi server lewat timing. Untuk OTP code (panjang publik) ini
+tidak mengeksploit, tapi untuk **context bytes** (mis. session ID, device
+hash) panjang **tidak** boleh leak.
+
+Implementasi kita selalu loop `max(len_a, len_b)` iterasi dan OR-kan
+length-difference ke akumulator diff sejak awal:
 
 ```rust
-let ctx_match  = issued_ctx.ct_eq(request_ctx).into();
-let code_match = constant_time_eq(code, expected);
-if !(ctx_match && code_match) { /* fail */ }
+fn constant_time_eq_bytes(a: &[u8], b: &[u8]) -> bool {
+    let max_len = a.len().max(b.len());
+    let mut diff: u32 = (a.len() as u32) ^ (b.len() as u32);  // length diff
+    for i in 0..max_len {
+        let av = *a.get(i).unwrap_or(&0);
+        let bv = *b.get(i).unwrap_or(&0);
+        diff |= (av ^ bv) as u32;
+    }
+    // Branchless: diff = 0 iff a == b (same content AND length).
+    (diff | diff.wrapping_neg()) >> 31 == 0
+}
 ```
+
+**Branchless context+code AND.** Verifier yang membandingkan
+`issued_context` vs `request_context` PLUS `code` vs `expected` mengevaluasi
+**kedua** perbandingan dulu sebelum branch — supaya timing tidak bisa
+membedakan "context salah" vs "code salah":
+
+```rust
+let ctx_match  = constant_time_eq_bytes(issued, request);
+let code_match = constant_time_eq(code, expected);
+if !(ctx_match && code_match) { /* fail — naikkan attempt counter */ }
+```
+
+### Loop verify TOTP constant-time terhadap posisi match
+
+TOTP `verify(code, time, window)` mencoba `2*window+1` kandidat counter
+(`i = -window..=window`). Implementasi naive akan **early-return** saat
+match ketemu — itu **membocorkan** posisi match lewat total runtime:
+
+| Posisi match | Runtime naive | Runtime fix |
+|---|---|---|
+| `i = -window` (paling awal) | 1× HMAC | `(2w+1)×` HMAC |
+| `i = +window` (paling akhir) | `(2w+1)×` HMAC | `(2w+1)×` HMAC |
+| no match | `(2w+1)×` HMAC | `(2w+1)×` HMAC |
+
+Naive: attacker mengukur runtime bisa men-derive **clock drift user** —
+informasi yang berharga untuk targeted attack. Untuk window=5, selisihnya
+bisa ~50µs, measurable lewat network timing.
+
+Fix: accumulator pattern dengan bitwise OR (bukan `||` yang short-circuit):
+
+```rust
+let mut matched: u8 = 0;
+for i in -window..=window {
+    let test_counter = counter.checked_add_signed(i).unwrap_or(0);
+    let expected = self.generate(...)?;
+    matched |= constant_time_eq(code, &expected) as u8;  // bitwise OR
+}
+Ok(matched != 0)
+```
+
+Underflow di `checked_add_signed` di-handle dengan `unwrap_or(0)` (bukan
+`continue`) — pakai counter=0 yang sama lama dengan counter manapun karena
+HMAC constant-time. Tidak ada early-skip di loop.
+
+**Pengecualian: `verify_tracking`** sengaja early-return karena method-nya
+memang perlu merekam offset mana yang match ke `ClockSkewDetector`.
+Timing leak di sana adalah **fitur**, bukan bug. Caller yang tidak butuh
+skew tracking harus pakai `verify` plain.
 
 ### Zeroize
 
@@ -464,9 +555,11 @@ Module dibagi dua tier:
 
 **Tier 1 — `alloc` saja (cocok untuk no_std embedded):**
 - `algorithm`, `error`, `constant_time`, `base32`, `hotp`, `totp`
+- `KeyGenerator::fill_secret` (stack buffer, tidak butuh alloc)
 
 **Tier 2 — butuh `std`:**
-- `key` (butuh `getrandom` yang butuh OS RNG)
+- `KeyGenerator::generate_secret` / `generate_default_secret`
+  (heap Vec, butuh `alloc`)
 - `verification` (butuh `HashSet`, `Mutex`)
 - `provisioning` (butuh `String` formatting kompleks)
 - `context`, `skew`, `metrics`, `builder`, `helpers`, `config`
@@ -474,6 +567,14 @@ Module dibagi dua tier:
 Pemilihan: kode TOTP/HOTP core (HMAC, truncation) ringan dan tidak butuh
 state shared, jadi aman di no_std. Sisanya butuh allocator + OS service
 yang tidak universal di embedded.
+
+**Embedded best practice:** untuk MCU dengan memory ketat (mis. Cortex-M
+dengan beberapa KB RAM), alokasi heap untuk secret 20-byte adalah
+pemborosan dan menyebabkan fragmentasi heap kalau ada operasi alloc/free
+berulang. Pakai `fill_secret(&mut [u8; 20])` dengan buffer stack atau
+`static` — zero heap traffic. Untuk zeroize on scope-exit, pakai
+`zeroize::Zeroizing<[u8; 20]>` atau call `[u8].zeroize()` manual sebelum
+buffer keluar scope.
 
 Pengguna no_std harus pass `time: u64` eksplisit ke `generate`/`verify`
 (tidak ada `SystemTime`). Tanggung jawab caller untuk supply waktu yang
