@@ -23,6 +23,8 @@ advanced features: **context binding**, **per-context replay isolation**, and
 - ✅ `no_std + alloc` support for embedded
 - ✅ 125+ tests (unit, integration, property-based thousands of random cases, concurrent stress)
 
+<video src="assets/test.mp4" controls autoplay muted playsinline></video>
+
 ## Documentation
 
 - 📘 **[docs/en/usage.md](./docs/en/usage.md)** — complete usage guide, all APIs + examples
