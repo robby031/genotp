@@ -1854,6 +1854,9 @@ mod tests {
         assert!(s.contains("secret=JBSWY3DPEHPK3PXP"));
         assert!(!s.contains("%3D"), "padding `=` leaked into URI");
         assert!(!s.contains("%20"), "whitespace leaked into URI");
+
+        genotp_string_free(out);
+        genotp_otpauth_uri_free(uri_ptr);
     }
 
     #[test]
