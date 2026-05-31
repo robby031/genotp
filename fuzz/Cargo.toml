@@ -4,6 +4,8 @@ version = "0.0.0"
 publish = false
 edition = "2024"
 
+[workspace]
+
 [package.metadata]
 cargo-fuzz = true
 
@@ -11,7 +13,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 
 [dependencies.genotp]
-path = ".."
+path = "../genotp"
 
 [[bin]]
 name = "fuzz_target_1"
